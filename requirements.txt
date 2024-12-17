@@ -1,0 +1,5 @@
+fastapi>=0.115.6
+# pydantic is required by fastapi
+pydantic>=2.10.0
+uvicorn>=0.33.0
+pytest>=8.3.4
