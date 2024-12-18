@@ -7,11 +7,12 @@ import logging.handlers
 from typing import *
 import logging
 import os
+import dataclasses
 import http
 import datetime
+import pathlib
 import string
 import requests
-import dataclasses
 Url = str
 Station = str
 
@@ -43,6 +44,33 @@ class Data(TypedDict):
     vel: float  # wind velocity in m/s
 
 
+# We could also use an Enum for the oclumn names, or a dataclass.
+class RenamedData(TypedDict):
+    """
+    Data columns standardized into english.
+    """
+    identifier: str
+    name: Station
+    ts: datetime.datetime
+    temperature: float
+    pressure: float
+    velocity: float
+
+    @staticmethod
+    def mapping() -> Dict[str, str]:
+        """
+        Returns the mapping of columns names Spanish -> English.
+        """
+        return {
+            "fhora": "ts",
+            "identificacion": "identifier",
+            "nombre": "name",
+            "pres": "pressure",
+            "vel": "velocity",
+            "temp": "temperature",
+        }
+
+
 class Scrapper():
     """
     Downloads and parses the AEMET data.
@@ -52,8 +80,10 @@ class Scrapper():
     # AAAA-MM-DDTHH:MM:SSUTC
     # Server side time format (from the data source)
     DATEFORMAT = "%Y-%M-%dT%H:%M:%SUTC"
+    DATEBASE_TIMEZONE = "utc"
+    db_path: pathlib.Path
 
-    def __init__(self, base_url: Url, api_key: str):
+    def __init__(self, base_url: Url, api_key: str, database_path: pathlib.Path):
         self.url = base_url.rstrip("/")
         self.session = requests.Session()
         if not api_key:
@@ -61,6 +91,37 @@ class Scrapper():
         self.session.headers.update(
             api_key=api_key
         )
+        # Not keeping an open connection as it might have unexpected behavior.
+        self.db_path = database_path
+
+    def setup_database(self) -> None:
+        """
+        Creates the different tables in the database if they are not present.
+        Note: all values in table will be normalized to UTC dates, and standard units (example: Pa instead of hPa)
+        Temperatures will be kept in °C despite °K being the standard.
+
+        Structure:
+        ```mermaid
+        Measure {
+            string id
+            timestamp ts
+            float temperature
+            float pressure
+            float vel
+        }
+
+        Station {
+            string name
+            string id
+        }
+
+
+        Measure }|--|| Station: id
+        ```
+
+        """
+
+        return
 
     @property
     def antarctica_url(self) -> string.Template:
@@ -105,12 +166,25 @@ class Scrapper():
         data: List[Data] = resp.json()
         # We clean the data we dont need
         wanted_fields = {k for k in Data.__annotations__.keys()}
-        output: List[Data] = []
+        # To standardize the units.
+        convertion_factor = {
+            "pres": 1e2,  # 1hPa = 100 Pa
+        }
+        output: List[RenamedData] = []
+        name_mapper = RenamedData.mapping()
         for entry in data:
-            new_obj: Data = dict()
+            new_obj: RenamedData = dict()
             for k in wanted_fields:
-                new_obj[k] = entry[k]
+                renamed_field = name_mapper[k]
+                if k in convertion_factor:
+                    new_obj[renamed_field] = convertion_factor[k] * entry[k]
+                elif k == "ts":
+                    new_obj[renamed_field] = datetime.datetime.fromisoformat(entry[k]).tz_convert(
+                        self.DATEBASE_TIMEZONE)
+                else:
+                    new_obj[renamed_field] = entry[k]
             output.append(new_obj)
+
         return output
 
     @staticmethod
@@ -118,4 +192,5 @@ class Scrapper():
         return Scrapper(
             "https://opendata.aemet.es/opendata",
             os.environ.get("API_KEY", ""),
+            pathlib.Path(os.environ.get("DATABASE_PATH", "axpo.sqlite")),
         )

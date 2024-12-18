@@ -1,9 +1,9 @@
-import requests
 import pytest_httpserver as mock
 import axpo.server
 import axpo.aemet.routes as routes
 import axpo.aemet.scrapping as scrapping
 import fastapi.testclient
+import pathlib
 import http
 import datetime
 import urllib.parse
@@ -14,7 +14,7 @@ from typing import *
 # TODO: We have to add more test cases for the different timezones.
 
 
-def test_get_valid_data(httpserver: mock.HTTPServer):
+def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
     class TestCase(NamedTuple):
         location: str
         station_name_english: routes.Station
@@ -22,7 +22,8 @@ def test_get_valid_data(httpserver: mock.HTTPServer):
         expected_url_call: str
     # We use a mock server for tests.
     api_key = "MOCK_KEY"
-    operator = scrapping.Scrapper(httpserver.url_for("/"), api_key)
+    operator = scrapping.Scrapper(httpserver.url_for(
+        "/"), api_key, tmp_path/"database.sqlite")
     start_date = datetime.datetime(2024, 1, 1, 0, 0)
     end_date = datetime.datetime(2024, 1, 1, 0, 20)
     testcases: list[TestCase] = [
@@ -115,20 +116,19 @@ def test_get_valid_data(httpserver: mock.HTTPServer):
         result = client.get(endpoint)
         assert result.status_code == http.HTTPStatus.OK, "Invalid status code when querying {}. Error : {}".format(
             endpoint, result.content)
-        # TODO: We could setup the test to handle relative precision, ie: abs(expected-data) < epsilon.
-        assert result.json() == [
-            {
-                "fhora": "2024-01-01T01:00:00+01:00",
-                "temp": 2.4,
-                "pres": 990.8333333333334,
-                "vel": 1.2333333333333334,
-                "nombre": "Meteo Station Juan Carlos I"
-            },
-            {
-                "fhora": "2024-01-01T01:00:00+01:00",
-                "temp": 2.4333333333333336,
-                "pres": 991.5,
-                "vel": 1.0999999999999999,
-                "nombre": "Meteo Station Gabriel de Castilla"
-            }
-        ], "Invalid data."
+        # We do not compare the data directly as we want more readable error messages.
+        j: List[scrapping.RenamedData] = result.json()
+        case_0 = j[0]
+        case_1 = j[1]
+        EPSILON = 1e-3
+        assert case_0["ts"] == "2024-01-01T01:00:00+01:00"
+        assert abs(case_0["temperature"] - 2.4) < EPSILON
+        assert abs(case_0["pressure"] - 99083.333) < EPSILON
+        assert abs(case_0["velocity"] - 1.233) < EPSILON
+        assert case_0["name"] == "Meteo Station Juan Carlos I"
+
+        assert case_1["ts"] == "2024-01-01T01:00:00+01:00"
+        assert abs(case_1["temperature"] - 2.433) < EPSILON
+        assert abs(case_1["pressure"] - 99150) < EPSILON
+        assert abs(case_1["velocity"] - 1.099) < EPSILON
+        assert case_1["name"] == "Meteo Station Gabriel de Castilla"

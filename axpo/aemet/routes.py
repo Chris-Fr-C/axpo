@@ -75,15 +75,17 @@ def get_data(
 ) -> fastapi.Response:
     all_data: List[pd.DataFrame] = []
     tz = pytz.timezone(timezone.strip().lower())
-    start_date = datetime.datetime.strptime(start_date, DATEFORMAT).replace(tzinfo=tz)
-    end_date = datetime.datetime.strptime(end_date, DATEFORMAT).replace(tzinfo=tz)
+    start_date = datetime.datetime.strptime(
+        start_date, DATEFORMAT).replace(tzinfo=tz)
+    end_date = datetime.datetime.strptime(
+        end_date, DATEFORMAT).replace(tzinfo=tz)
     mapper: Dict[AggregationLevel, str] = {
         "hourly": "h",
         "daily": "d",
         "monthly": "M"
     }
     for loc in locations:
-        data: List[scrapping.Data] = scrapper.request_data(
+        data: List[scrapping.RenamedData] = scrapper.request_data(
             start_date,
             end_date,
             IDENTITY_MAPPER[loc],
@@ -91,12 +93,12 @@ def get_data(
         # Not efficient for Raw request but easier to read this exercice.
         df = pd.DataFrame(data)
         # Those string fields cannot be aggregated.
-        df.drop(columns={"nombre", "identificacion"}, inplace=True)
-        df["fhora"] = pd.to_datetime(df["fhora"])
+        df.drop(columns={"name", "identifier"}, inplace=True)
+        df["ts"] = pd.to_datetime(df["ts"])
         if aggregation_level:
-            df = df.resample(mapper[aggregation_level], on="fhora").mean()
-
-        df["nombre"] = loc
+            df = df.resample(mapper[aggregation_level], on="ts").mean()
+        # We actually dont need to return the identifier.
+        df["name"] = loc
         all_data.append(df)
     logging.debug("Concatenating dataframes.",
                   extra={"amount_df": len(all_data)})
