@@ -11,12 +11,13 @@ from typing import *
 
 # TODO: We should also make a test for the edge cases such as the none cases etc...
 # TODO: We have to add more test cases for the different aggregation methods.
+# TODO: We have to add more test cases for the different timezones.
 
 
 def test_get_valid_data(httpserver: mock.HTTPServer):
     class TestCase(NamedTuple):
         location: str
-        station_name_english: routes.Stations
+        station_name_english: routes.Station
         json_data: List[scrapping.Data]
         expected_url_call: str
     # We use a mock server for tests.
@@ -112,8 +113,22 @@ def test_get_valid_data(httpserver: mock.HTTPServer):
         ))
 
         result = client.get(endpoint)
-        assert result.status_code == http.HTTPStatus.OK, "Invalid status code when querying {}".format(
-            endpoint)
+        assert result.status_code == http.HTTPStatus.OK, "Invalid status code when querying {}. Error : {}".format(
+            endpoint, result.content)
+        # TODO: We could setup the test to handle relative precision, ie: abs(expected-data) < epsilon.
         assert result.json() == [
-            {'temp': 2.4, 'vel': 1.2333333333333334, 'pres': 990.8333333333334, 'nombre': 'Meteo Station Juan Carlos I'},
-            {'temp': 2.4333333333333336, 'vel': 1.0999999999999999, 'pres': 991.5, 'nombre': 'Meteo Station Gabriel de Castilla'}], "Invalid data."
+            {
+                "fhora": "2024-01-01T01:00:00+01:00",
+                "temp": 2.4,
+                "pres": 990.8333333333334,
+                "vel": 1.2333333333333334,
+                "nombre": "Meteo Station Juan Carlos I"
+            },
+            {
+                "fhora": "2024-01-01T01:00:00+01:00",
+                "temp": 2.4333333333333336,
+                "pres": 991.5,
+                "vel": 1.0999999999999999,
+                "nombre": "Meteo Station Gabriel de Castilla"
+            }
+        ], "Invalid data."

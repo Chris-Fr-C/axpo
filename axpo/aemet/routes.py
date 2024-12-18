@@ -1,4 +1,5 @@
 import fastapi
+import fastapi.encoders
 import axpo.aemet.scrapping as scrapping
 import os
 from typing import *
@@ -6,6 +7,9 @@ import pandas as pd
 import datetime
 import http
 import logging
+import enum
+import pytz
+
 logger = logging.getLogger(__name__)
 
 handler = logging.handlers.RotatingFileHandler(
@@ -28,10 +32,12 @@ def scrapper() -> scrapping.Scrapper:
     return scrapping.Scrapper.default()
 
 
-Stations = Union[Literal["Meteo Station Gabriel de Castilla",
-                         "Meteo Station Juan Carlos I"]]
+class Station(enum.StrEnum):
+    CASTILLA = "Meteo Station Gabriel de Castilla"
+    JUAN_CARLOS = "Meteo Station Juan Carlos I"
 
-IDENTITY_MAPPER: Dict[Stations, str] = {
+
+IDENTITY_MAPPER: Dict[Station, str] = {
     "Meteo Station Gabriel de Castilla": "89070",
     "Meteo Station Juan Carlos I": "89064",
 }
@@ -39,6 +45,9 @@ IDENTITY_MAPPER: Dict[Stations, str] = {
 AggregationLevel = Union[Literal["hourly", "daily", "monthly"]]
 
 DATEFORMAT = "%Y-%m-%dT%H:%M"
+
+# For proper description in the openapi specification.
+Timezone = enum.StrEnum("Timezones", pytz.all_timezones)
 
 
 @router.get("/antartica")
@@ -48,7 +57,12 @@ def get_data(
         description="Start date to fetch data (included)."),
     end_date: str = fastapi.Query(
         description="End date to fetch data (included)."),
-    locations: List[str | Stations] = fastapi.Query(
+    timezone: Timezone = fastapi.Query(
+        description="Timezone of the given dates. Defaults to UTC. Output will be in Europe/Madrid timezone.",
+        default="utc",
+    ),
+
+    locations: List[Station] = fastapi.Query(
         description="List of stations to include in the request. Available: {}".format(
             ", ".join([x for x in IDENTITY_MAPPER.keys()])),
         examples=[x for x in IDENTITY_MAPPER.keys()]
@@ -60,8 +74,9 @@ def get_data(
 
 ) -> fastapi.Response:
     all_data: List[pd.DataFrame] = []
-    start_date = datetime.datetime.strptime(start_date, DATEFORMAT)
-    end_date = datetime.datetime.strptime(end_date, DATEFORMAT)
+    tz = pytz.timezone(timezone.strip().lower())
+    start_date = datetime.datetime.strptime(start_date, DATEFORMAT).replace(tzinfo=tz)
+    end_date = datetime.datetime.strptime(end_date, DATEFORMAT).replace(tzinfo=tz)
     mapper: Dict[AggregationLevel, str] = {
         "hourly": "h",
         "daily": "d",
@@ -83,7 +98,15 @@ def get_data(
 
         df["nombre"] = loc
         all_data.append(df)
-    logging.debug("Concatenating dataframes.", extra={"amount_df": len(all_data)})
+    logging.debug("Concatenating dataframes.",
+                  extra={"amount_df": len(all_data)})
     grouped = pd.concat(all_data, axis=0)
-    result = grouped.to_dict(orient="records")
-    return fastapi.responses.JSONResponse(content=result)
+    # We change the timezone to Europe/Madrid.
+    output_tz = "Europe/Madrid"
+    # Time is the index of the dataset. The input is already timezone aware since we receive the
+    # timezone in the isoformat data from the data source.
+    grouped.index = grouped.index.tz_convert(output_tz)
+    # We must reset index to keep the date column.
+    result = grouped.reset_index().to_dict(orient="records")
+    # Datetime is not json serialzable so we use the fastapi encoder.
+    return fastapi.responses.JSONResponse(content=fastapi.encoders.jsonable_encoder(result))
