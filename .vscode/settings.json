@@ -3,5 +3,13 @@
     "axpo"
   ],
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
+  "python.testing.pytestEnabled": true,
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "SQLite",
+      "name": "demo",
+      "database": "D:\\Development\\axpo\\file.db"
+    }
+  ]
 }

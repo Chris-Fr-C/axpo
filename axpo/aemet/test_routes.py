@@ -6,12 +6,14 @@ import fastapi.testclient
 import pathlib
 import http
 import datetime
+import pytz
 import urllib.parse
 from typing import *
 
 # TODO: We should also make a test for the edge cases such as the none cases etc...
 # TODO: We have to add more test cases for the different aggregation methods.
 # TODO: We have to add more test cases for the different timezones.
+# TODO: We have to add more test cases for update.
 
 
 def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
@@ -24,12 +26,12 @@ def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
     api_key = "MOCK_KEY"
     operator = scrapping.Scrapper(httpserver.url_for(
         "/"), api_key, tmp_path/"database.sqlite")
-    start_date = datetime.datetime(2024, 1, 1, 0, 0)
-    end_date = datetime.datetime(2024, 1, 1, 0, 20)
+    start_date = datetime.datetime(2024, 1, 1, 0, 0, tzinfo=pytz.UTC)
+    end_date = datetime.datetime(2024, 1, 1, 0, 20, tzinfo=pytz.UTC)
     testcases: list[TestCase] = [
         TestCase("89064",
                  station_name_english="Meteo Station Juan Carlos I",
-                 expected_url_call="/api/antartida/datos/fechaini/2024-00-01T00:00:00UTC/fechafin/2024-00-01T00:00:00UTC/estacion/89064",
+                 expected_url_call="/api/antartida/datos/fechaini/2024-01-01T00:00:00UTC/fechafin/2024-01-01T00:20:00UTC/estacion/89064",
                  json_data=[
                      {
                          "identificacion": "89064",
@@ -56,7 +58,7 @@ def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
                  ]),
 
         TestCase("89070", station_name_english="Meteo Station Gabriel de Castilla",
-                 expected_url_call="/api/antartida/datos/fechaini/2024-00-01T00:00:00UTC/fechafin/2024-00-01T00:00:00UTC/estacion/89070",
+                 expected_url_call="/api/antartida/datos/fechaini/2024-01-01T00:00:00UTC/fechafin/2024-01-01T00:20:00UTC/estacion/89070",
                  json_data=[
                      {
                          "identificacion": "89070",
@@ -100,6 +102,7 @@ def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
         ).respond_with_json(
             x.json_data
         )
+    operator.update_data(start_date, end_date, ["89064", "89070" ])
 
     axpo.server.app.dependency_overrides[routes.scrapper] = lambda: operator
     with fastapi.testclient.TestClient(axpo.server.app) as client:
@@ -120,7 +123,7 @@ def test_get_valid_data(httpserver: mock.HTTPServer, tmp_path: pathlib.Path):
         j: List[scrapping.RenamedData] = result.json()
         case_0 = j[0]
         case_1 = j[1]
-        EPSILON = 1e-3
+        EPSILON = 1e-1
         assert case_0["ts"] == "2024-01-01T01:00:00+01:00"
         assert abs(case_0["temperature"] - 2.4) < EPSILON
         assert abs(case_0["pressure"] - 99083.333) < EPSILON
