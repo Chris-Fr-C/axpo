@@ -50,7 +50,22 @@ DATEFORMAT = "%Y-%m-%dT%H:%M"
 Timezone = enum.StrEnum("Timezones", pytz.all_timezones)
 
 
-@router.get("/antartica")
+@router.get("/udpate-antartica", description="""
+            This endpoint is here to update the data periodically. (The company uses airflow, so an http request here makes sense.)
+            """)
+def update_antartica(scrapper: Annotated[scrapping.Scrapper, fastapi.Depends(scrapper)],
+                     start_date: str = fastapi.Query(
+    description="Start date to fetch data (included, UTC)."),
+    end_date: str = fastapi.Query(
+        description="End date to fetch data (included, UTC)."),
+) -> fastapi.Response:
+    scrapper.update_data(start_date, end_date, IDENTITY_MAPPER.values())
+    return fastapi.Response(status_code=http.HTTPStatus.OK)
+
+
+@router.get("/antartica", description="""
+            Gets the data for the specified time. Results are in Europe/Madrid timezone.
+            """)
 def get_data(
     scrapper: Annotated[scrapping.Scrapper, fastapi.Depends(scrapper)],
     start_date: str = fastapi.Query(
